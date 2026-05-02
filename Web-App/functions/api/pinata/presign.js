@@ -76,6 +76,7 @@ export async function onRequestPost(context) {
   const size = Number(body.size || 0)
   const maxFileBytes = Number(env.PINATA_MAX_FILE_BYTES || DEFAULT_MAX_FILE_BYTES)
   const expirySeconds = Number(env.PINATA_PRESIGN_TTL || DEFAULT_EXPIRY_SECONDS)
+  const signedAt = Math.floor(Date.now() / 1000)
 
   if (!Number.isFinite(size) || size <= 0) {
     return json({ error: 'Invalid upload size.' }, { status: 400 })
@@ -101,10 +102,11 @@ export async function onRequestPost(context) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
+      date: signedAt,
       expires: expirySeconds,
-      name: fileName,
-      maxFileSize: size,
-      ...(contentType ? { mimeTypes: [contentType] } : {}),
+      filename: fileName,
+      max_file_size: size,
+      ...(contentType ? { allow_mime_types: [contentType] } : {}),
       keyvalues: {
         app: 'content-certificate-market',
         kind,
