@@ -1,142 +1,129 @@
-# Content Certificate Market Web App
+# Web App
 
-这是一个不依赖 React 的轻量前端，使用 `Vite + TypeScript + viem` 完成：
+This front end is a lightweight `Vite + TypeScript + viem` app for the digital ownership certificate platform.
 
-- `Publish`
-  本地加密文件、上传到 IPFS、调用合约铸造证书
-- `Marketplace`
-  读取链上挂牌并购买证书
-- `My Library`
-  查看当前钱包拥有的证书、下载加密文件、用访问密钥本地解密
-- `History`
-  读取链上 `Sale` 事件，展示买卖双方历史交易
+## Views
 
-## 本地开发
+- `Publish`: encrypt a file, upload certificate metadata to IPFS, and mint the NFT certificate.
+- `Marketplace`: browse active listings and purchase certificates.
+- `My Library`: inspect owned certificates, download encrypted assets, and decrypt them with the saved access key.
+- `History`: review past sales as buyer or seller from onchain `Sale` events.
 
-在 `Web-App/.env.local` 中配置：
+## Environment Variables
+
+Create `.env.local` for local overrides.
 
 ```bash
-VITE_CONTENT_NFT_ADDRESS=0xYourDeployedContract
+VITE_CONTENT_NFT_ADDRESS=0xYourContract
 VITE_CHAIN_ID=99911155111
 VITE_TENDERLY_RPC_URL=https://virtual.sepolia.eu.rpc.tenderly.co/b1bfb292-efb9-4c44-b90f-6bf3b3480dd3
 ```
 
-如果你只是本地用 `vite` 调试上传功能，可以临时加入：
+Optional public client settings:
 
 ```bash
-VITE_PINATA_JWT=your_local_only_pinata_jwt
-```
-
-或：
-
-```bash
-VITE_PINATA_KEY=your_local_only_api_key
-VITE_PINATA_SECRET=your_local_only_api_secret
-```
-
-运行：
-
-```bash
-npm install
-npm run dev
-```
-
-## 在线部署
-
-最推荐的黑客松展示方案是：
-
-- 合约部署到链上
-- 前端部署到静态托管平台
-- Pinata JWT 只放在平台的服务端环境变量中
-
-这个仓库目前同时内置了两套上传签名接口，路径都保持为：
-
-`/api/pinata/presign`
-
-- `Vercel Function`: [api/pinata/presign.js](/Users/Zhuanz/Digital-Ownership-Plantform/Web-App/api/pinata/presign.js:1)
-- `Cloudflare Pages Function`: [functions/api/pinata/presign.js](/Users/Zhuanz/Digital-Ownership-Plantform/Web-App/functions/api/pinata/presign.js:1)
-
-### Cloudflare Pages
-
-如果你走 Cloudflare Pages：
-
-1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)
-2. 进入 `Workers & Pages`
-3. 选择 `Create application -> Pages -> Connect to Git`
-4. 连接 GitHub 并选择你的仓库
-5. `Build settings` 这样填：
-
-```bash
-Framework preset: Vite
-Root directory: Web-App
-Build command: npm run build
-Build output directory: dist
-```
-
-Cloudflare 官方说明可参考：
-- [Deploy a Vite site to Cloudflare Pages](https://developers.cloudflare.com/pages/framework-guides/deploy-a-vite-site/)
-- [Cloudflare Pages Functions](https://developers.cloudflare.com/pages/functions/get-started/)
-
-### Cloudflare Pages 变量
-
-在 Pages 项目的 `Settings -> Variables and Secrets` 中配置：
-
-公开构建变量：
-
-```bash
-VITE_CONTENT_NFT_ADDRESS=0xYourDeployedContract
-VITE_CHAIN_ID=99911155111
-VITE_TENDERLY_RPC_URL=https://virtual.sepolia.eu.rpc.tenderly.co/b1bfb292-efb9-4c44-b90f-6bf3b3480dd3
-```
-
-可选：
-
-```bash
-VITE_EXPLORER_TX_BASE=https://your-explorer-base/tx
+VITE_EXPLORER_TX_BASE=https://your-explorer/tx
 VITE_IPFS_GATEWAY_BASE=https://gateway.pinata.cloud/ipfs
+VITE_PINATA_PRESIGN_ENDPOINT=https://your-deployment.example/api/pinata/presign
 ```
 
-服务端机密变量：
+Optional local-only Pinata credentials for direct browser uploads:
+
+```bash
+VITE_PINATA_JWT=local_dev_only_jwt
+# or
+VITE_PINATA_KEY=local_dev_only_key
+VITE_PINATA_SECRET=local_dev_only_secret
+```
+
+Optional upload routing controls:
+
+```bash
+# Metadata and preview uploads are always forced onto Public IPFS so wallets can render the NFT.
+# Keep content public too unless you have implemented a private access-link download endpoint.
+VITE_PINATA_CONTENT_NETWORK=public
+PINATA_CONTENT_NETWORK=public
+```
+
+## Upload Architecture
+
+For a wallet-compatible NFT, these resources must stay public:
+
+- `tokenURI` metadata JSON
+- NFT preview image used in `image`
+- optional `previewURI`
+
+This app now forces `metadata` and `preview` uploads onto Pinata Public IPFS. Encrypted source files can be routed separately, but the default is still `public` because the current library download flow fetches encrypted blobs from a public gateway and decrypts them client-side.
+
+If you later switch `PINATA_CONTENT_NETWORK=private`, you must also add a private access-link or proxy download endpoint; otherwise `My Library` downloads will stop working.
+
+## Cloudflare Pages
+
+1. Push the repo to GitHub.
+2. In Cloudflare Dashboard, open `Workers & Pages -> Create application -> Pages -> Connect to Git`.
+3. Select this repository.
+4. Build settings:
+   - Framework preset: `Vite`
+   - Root directory: `Web-App`
+   - Build command: `npm run build`
+   - Build output directory: `dist`
+5. Add build-time variables:
+
+```bash
+VITE_CONTENT_NFT_ADDRESS=0xe4FBE59E931E6dd8B3374d7b89576e97BcFB0317
+VITE_CHAIN_ID=99911155111
+VITE_TENDERLY_RPC_URL=https://virtual.sepolia.eu.rpc.tenderly.co/b1bfb292-efb9-4c44-b90f-6bf3b3480dd3
+```
+
+6. After the project is created, open `Settings -> Variables and Secrets` and add:
+
+Public variables:
+
+```bash
+UPLOAD_ALLOWED_ORIGINS=https://digital-ownership-platform.pages.dev
+PINATA_MAX_FILE_BYTES=104857600
+PINATA_PRESIGN_TTL=60
+PINATA_CONTENT_NETWORK=public
+```
+
+Secret:
 
 ```bash
 PINATA_JWT=your_server_side_pinata_jwt
-PINATA_MAX_FILE_BYTES=104857600
-PINATA_PRESIGN_TTL=60
-UPLOAD_ALLOWED_ORIGINS=https://your-project.pages.dev
 ```
 
-如果你绑定了自定义域名，也可以把它一起加进 `UPLOAD_ALLOWED_ORIGINS`，多个值用逗号分隔。
+7. Redeploy after changing variables.
 
-### Vercel
+Cloudflare Pages Functions entry point:
 
-如果你走 Vercel：
+- `functions/api/pinata/presign.js`
 
-在导入这个仓库时，把 `Root Directory` 设为 `Web-App`。  
-官方说明可参考 [Vite on Vercel](https://vercel.com/docs/frameworks/frontend/vite) 和 [Monorepo Root Directory](https://vercel.com/docs/monorepos)。
+## Vercel
 
-公开变量和服务端变量名称与 Cloudflare Pages 基本一致，只是配置位置换成 Vercel 的 Project Settings。
+1. Import the repository and set `Root Directory` to `Web-App`.
+2. Build settings:
+   - Build command: `npm run build`
+   - Output directory: `dist`
+3. Add environment variables:
 
-### 为什么不要把 Pinata JWT 放进 `VITE_*`
-
-Vite 官方文档说明，只有以 `VITE_` 开头的变量才会暴露给客户端，而这些值会进入浏览器端代码包中：  
-[Vite Env Variables and Modes](https://vite.dev/guide/env-and-mode)
-
-所以：
-
-- `VITE_PINATA_JWT` 只适合本地临时调试
-- 正式线上展示应使用服务端 `PINATA_JWT`
-
-Pinata 官方也提供了 `Presigned URLs` 方案，适合这种前端公开部署场景：  
-[Pinata Presigned URLs](https://docs.pinata.cloud/files/presigned-urls)
-
-## 当前内置网络
-
-- `Anvil Local` (`31337`)
-- `Sepolia` (`11155111`)
-- `Tenderly Virtual Sepolia` (`99911155111`)
-
-## 构建
+Public variables:
 
 ```bash
-npm run build
+VITE_CONTENT_NFT_ADDRESS=0xe4FBE59E931E6dd8B3374d7b89576e97BcFB0317
+VITE_CHAIN_ID=99911155111
+VITE_TENDERLY_RPC_URL=https://virtual.sepolia.eu.rpc.tenderly.co/b1bfb292-efb9-4c44-b90f-6bf3b3480dd3
 ```
+
+Server-side variables:
+
+```bash
+PINATA_JWT=your_server_side_pinata_jwt
+UPLOAD_ALLOWED_ORIGINS=https://your-project.vercel.app
+PINATA_MAX_FILE_BYTES=104857600
+PINATA_PRESIGN_TTL=60
+PINATA_CONTENT_NETWORK=public
+```
+
+Vercel serverless signer entry point:
+
+- `api/pinata/presign.js`

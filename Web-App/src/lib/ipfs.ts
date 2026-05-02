@@ -14,11 +14,14 @@ const PINATA_FILE_URL = 'https://uploads.pinata.cloud/v3/files'
 const DEFAULT_GATEWAY_BASE = 'https://gateway.pinata.cloud/ipfs'
 const PRESIGN_ENDPOINT = import.meta.env.VITE_PINATA_PRESIGN_ENDPOINT || '/api/pinata/presign'
 
+type UploadKind = 'content' | 'preview' | 'metadata'
+type UploadNetwork = 'public' | 'private'
+
 type PresignRequestPayload = {
   fileName: string
   contentType: string
   size: number
-  kind: 'content' | 'preview' | 'metadata'
+  kind: UploadKind
 }
 
 type PresignResponsePayload = {
@@ -97,6 +100,15 @@ function parseUploadResponse(payload: UploadApiResponse): IPFSUploadResult {
   }
 }
 
+function normalizeUploadNetwork(value: string | undefined): UploadNetwork {
+  return String(value || '').trim().toLowerCase() === 'private' ? 'private' : 'public'
+}
+
+function resolveUploadNetwork(kind: UploadKind): UploadNetwork {
+  if (kind !== 'content') return 'public'
+  return normalizeUploadNetwork(import.meta.env.VITE_PINATA_CONTENT_NETWORK)
+}
+
 async function requestPresignedUploadUrl(payload: PresignRequestPayload) {
   let response: Response
 
@@ -110,7 +122,7 @@ async function requestPresignedUploadUrl(payload: PresignRequestPayload) {
     })
   } catch (error) {
     throw new Error(
-      'Pinata signing endpoint is unavailable. For local Vite development, configure VITE_PINATA_JWT. For Vercel, deploy the /api signer and set PINATA_JWT.',
+      'Pinata signing endpoint is unavailable. For local Vite development, configure VITE_PINATA_JWT. For Vercel or Cloudflare Pages, deploy the /api signer and set PINATA_JWT.',
       { cause: error },
     )
   }
@@ -131,12 +143,17 @@ async function requestPresignedUploadUrl(payload: PresignRequestPayload) {
 export async function uploadFileToPinata(
   file: File,
   credentials: PinataCredentials,
-  kind: 'content' | 'preview' | 'metadata' = 'content',
+  kind: UploadKind = 'content',
 ): Promise<IPFSUploadResult> {
   const useDirectClientCredentials = hasPinataCredentials(credentials)
   const headers = useDirectClientCredentials ? buildPinataHeaders(credentials) : {}
   const formData = new FormData()
   formData.append('file', file)
+
+  if (useDirectClientCredentials) {
+    formData.append('network', resolveUploadNetwork(kind))
+  }
+
   const uploadEndpoint = useDirectClientCredentials
     ? PINATA_FILE_URL
     : await requestPresignedUploadUrl({

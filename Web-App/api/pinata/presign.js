@@ -1,4 +1,5 @@
-const PINATA_SIGN_URL = 'https://uploads.pinata.cloud/v3/files/sign'
+import { PinataSDK } from 'pinata'
+
 const DEFAULT_MAX_FILE_BYTES = 100 * 1024 * 1024
 const DEFAULT_EXPIRY_SECONDS = 60
 
@@ -32,6 +33,37 @@ function isAllowedMimeType(contentType) {
   )
 }
 
+function resolveContentNetwork(value) {
+  return String(value || '').trim().toLowerCase() === 'private' ? 'private' : 'public'
+}
+
+function resolveUploadNetwork(kind, contentNetwork) {
+  if (kind === 'content') {
+    return resolveContentNetwork(contentNetwork)
+  }
+
+  return 'public'
+}
+
+function createPinataClient(pinataJwt) {
+  return new PinataSDK({
+    pinataJwt,
+  })
+}
+
+async function createSignedUploadUrl(pinata, { network, date, expires, fileName, maxFileSize, mimeTypes, keyvalues }) {
+  const uploader = network === 'private' ? pinata.upload.private : pinata.upload.public
+
+  return uploader.createSignedURL({
+    date,
+    expires,
+    name: fileName,
+    maxFileSize,
+    ...(mimeTypes.length > 0 ? { mimeTypes } : {}),
+    keyvalues,
+  })
+}
+
 export default async function handler(request, response) {
   response.setHeader('Cache-Control', 'no-store')
 
@@ -61,6 +93,7 @@ export default async function handler(request, response) {
   const maxFileBytes = Number(process.env.PINATA_MAX_FILE_BYTES || DEFAULT_MAX_FILE_BYTES)
   const expirySeconds = Number(process.env.PINATA_PRESIGN_TTL || DEFAULT_EXPIRY_SECONDS)
   const signedAt = Math.floor(Date.now() / 1000)
+  const network = resolveUploadNetwork(kind, process.env.PINATA_CONTENT_NETWORK)
 
   if (!Number.isFinite(size) || size <= 0) {
     return response.status(400).json({ error: 'Invalid upload size.' })
@@ -76,38 +109,25 @@ export default async function handler(request, response) {
     return response.status(400).json({ error: `Unsupported content type: ${contentType}` })
   }
 
-  const upstreamResponse = await fetch(PINATA_SIGN_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.PINATA_JWT}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
+  try {
+    const pinata = createPinataClient(process.env.PINATA_JWT)
+    const signedUrl = await createSignedUploadUrl(pinata, {
+      network,
       date: signedAt,
       expires: expirySeconds,
-      filename: fileName,
-      max_file_size: size,
-      ...(contentType ? { allow_mime_types: [contentType] } : {}),
+      fileName,
+      maxFileSize: size,
+      mimeTypes: contentType ? [contentType] : [],
       keyvalues: {
         app: 'content-certificate-market',
         kind,
+        network,
       },
-    }),
-  })
-
-  if (!upstreamResponse.ok) {
-    const errorText = await upstreamResponse.text()
-    return response.status(upstreamResponse.status).json({
-      error: `Pinata signing failed: ${upstreamResponse.status} ${upstreamResponse.statusText} - ${errorText}`,
     })
+
+    return response.status(200).json({ url: signedUrl, network })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown signing error.'
+    return response.status(502).json({ error: `Pinata signing failed: ${message}` })
   }
-
-  const payload = await upstreamResponse.json()
-  const signedUrl = payload?.data || payload?.url
-
-  if (!signedUrl) {
-    return response.status(502).json({ error: 'Pinata did not return a signed upload URL.' })
-  }
-
-  return response.status(200).json({ url: signedUrl })
 }

@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "pinata": "^2.5.6",
     "viem": "^2.0.0"
   },
   "devDependencies": {
