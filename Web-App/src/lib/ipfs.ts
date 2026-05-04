@@ -12,6 +12,12 @@ export type IPFSUploadResult = {
 
 const PINATA_FILE_URL = 'https://uploads.pinata.cloud/v3/files'
 const DEFAULT_GATEWAY_BASE = 'https://gateway.pinata.cloud/ipfs'
+const FALLBACK_GATEWAY_BASES = [
+  'https://gateway.pinata.cloud/ipfs',
+  'https://cloudflare-ipfs.com/ipfs',
+  'https://ipfs.io/ipfs',
+  'https://dweb.link/ipfs',
+]
 const PRESIGN_ENDPOINT = import.meta.env.VITE_PINATA_PRESIGN_ENDPOINT || '/api/pinata/presign'
 
 type UploadKind = 'content' | 'preview' | 'metadata'
@@ -75,6 +81,10 @@ export function hasPinataCredentials(credentials: PinataCredentials) {
 function resolveGatewayBase() {
   const configured = import.meta.env.VITE_IPFS_GATEWAY_BASE || DEFAULT_GATEWAY_BASE
   return configured.endsWith('/') ? configured.slice(0, -1) : configured
+}
+
+function uniqueValues(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)))
 }
 
 function parseUploadResponse(payload: UploadApiResponse): IPFSUploadResult {
@@ -198,13 +208,33 @@ export function resolveIpfsUri(uri: string) {
   return uri
 }
 
+export function resolveIpfsUriCandidates(uri: string) {
+  if (!uri) return []
+  if (!uri.startsWith('ipfs://')) return [uri]
+
+  const cidPath = uri.slice('ipfs://'.length)
+  const gateways = uniqueValues([resolveGatewayBase(), ...FALLBACK_GATEWAY_BASES])
+  return gateways.map((gateway) => `${gateway}/${cidPath}`)
+}
+
 export async function fetchJsonFromUri<T>(uri: string): Promise<T | null> {
   if (!uri) return null
 
-  const response = await fetch(resolveIpfsUri(uri))
-  if (!response.ok) {
-    throw new Error(`Failed to fetch JSON metadata: ${response.status}`)
+  const urls = resolveIpfsUriCandidates(uri)
+  let lastError: unknown = null
+
+  for (const url of urls) {
+    try {
+      const response = await fetch(url)
+      if (!response.ok) {
+        throw new Error(`Failed to fetch JSON metadata from ${url}: ${response.status}`)
+      }
+
+      return (await response.json()) as T
+    } catch (error) {
+      lastError = error
+    }
   }
 
-  return (await response.json()) as T
+  throw lastError instanceof Error ? lastError : new Error('Failed to fetch JSON metadata from IPFS.')
 }

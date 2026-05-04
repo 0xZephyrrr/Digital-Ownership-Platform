@@ -16,6 +16,7 @@ import { formatBytes, formatEth, formatTimestamp, getContentTypeLabel, shortenAd
 import {
   getPinataCredentialsFromEnv,
   resolveIpfsUri,
+  resolveIpfsUriCandidates,
   uploadFileToPinata,
   uploadJsonToPinata,
 } from './lib/ipfs'
@@ -117,10 +118,21 @@ function getConfiguredContractLabel() {
   }
 }
 
-function getAssetImage(asset: AssetRecord) {
-  return resolveIpfsUri(
-    asset.metadata?.image || asset.metadata?.previewURI || asset.contractMetadata.previewURI || ''
-  )
+function getAssetImageUris(asset: AssetRecord) {
+  const imageUri = asset.metadata?.image || asset.metadata?.previewURI || asset.contractMetadata.previewURI || ''
+  return resolveIpfsUriCandidates(imageUri)
+}
+
+function renderAssetImage(asset: AssetRecord, title: string) {
+  const images = getAssetImageUris(asset)
+
+  if (!images.length) {
+    return '<div class="card__image card__image--empty">No preview</div>'
+  }
+
+  return `<img class="card__image" src="${escapeHtml(images[0])}" alt="${escapeHtml(
+    title,
+  )}" data-ipfs-srcs="${escapeHtml(JSON.stringify(images))}" data-ipfs-index="0" loading="lazy" decoding="async" />`
 }
 
 function renderNotice() {
@@ -147,18 +159,13 @@ function renderMarketplaceCards() {
 
   return state.listedAssets
     .map((asset) => {
-      const image = getAssetImage(asset)
       const title = asset.metadata?.name || `Certificate #${asset.tokenId.toString()}`
       const description = asset.metadata?.description || 'No description provided.'
       const isSeller = state.account?.toLowerCase() === asset.listing.seller.toLowerCase()
 
       return `
         <article class="card">
-          ${
-            image
-              ? `<img class="card__image" src="${escapeHtml(image)}" alt="${escapeHtml(title)}" />`
-              : '<div class="card__image card__image--empty">No preview</div>'
-          }
+          ${renderAssetImage(asset, title)}
           <div class="card__body">
             <div class="card__topline">
               <span class="pill">Token #${asset.tokenId.toString()}</span>
@@ -192,7 +199,6 @@ function renderLibraryCards() {
 
   return state.ownedAssets
     .map((asset) => {
-      const image = getAssetImage(asset)
       const tokenId = asset.tokenId.toString()
       const keyValue = state.accessKeys[tokenId] || ''
       const title = asset.metadata?.name || `Certificate #${tokenId}`
@@ -200,11 +206,7 @@ function renderLibraryCards() {
 
       return `
         <article class="card card--library">
-          ${
-            image
-              ? `<img class="card__image" src="${escapeHtml(image)}" alt="${escapeHtml(title)}" />`
-              : '<div class="card__image card__image--empty">No preview</div>'
-          }
+          ${renderAssetImage(asset, title)}
           <div class="card__body">
             <div class="card__topline">
               <span class="pill">Token #${tokenId}</span>
@@ -816,6 +818,36 @@ async function decryptAsset(tokenId: string, uri: string) {
     render()
   }
 }
+
+root.addEventListener(
+  'error',
+  (event) => {
+    const target = event.target
+    if (!(target instanceof HTMLImageElement) || !target.classList.contains('card__image')) return
+
+    let sources: string[] = []
+
+    try {
+      sources = JSON.parse(target.dataset.ipfsSrcs || '[]') as string[]
+    } catch {
+      sources = []
+    }
+
+    const nextIndex = Number(target.dataset.ipfsIndex || '0') + 1
+
+    if (sources[nextIndex]) {
+      target.dataset.ipfsIndex = String(nextIndex)
+      target.src = sources[nextIndex]
+      return
+    }
+
+    const placeholder = document.createElement('div')
+    placeholder.className = 'card__image card__image--empty'
+    placeholder.textContent = 'Preview unavailable'
+    target.replaceWith(placeholder)
+  },
+  true,
+)
 
 root.addEventListener('click', async (event) => {
   const target = event.target
